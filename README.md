@@ -36,7 +36,7 @@ Generates a random UUID.
 
 UUID generation uses Java's standard API:
 
-```java
+```
 UUID.randomUUID()
 ```
 
@@ -121,7 +121,7 @@ APIへの接続失敗、タイムアウト、API側のサーバーエラーな�
 
 UUIDの生成にはJava標準APIの
 
-```java
+```
 UUID.randomUUID()
 ```
 
