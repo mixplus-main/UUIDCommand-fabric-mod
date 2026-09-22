@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "uuidcommand",
+  "version": "${version}",
+  "name": "UUIDCommand",
+  "description": "create by mixplus",
+  "authors": [],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "icon": "assets/uuidcommand/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-datagen": [
+      "com.mixplus.mods.uuidcommand.client.UuidcommandDataGenerator"
+    ],
+    "client": [
+      "com.mixplus.mods.uuidcommand.client.UuidcommandClient"
+    ],
+    "main": [
+      "com.mixplus.mods.uuidcommand.Uuidcommand"
+    ]
+  },
+  "mixins": [
+    "uuidcommand.mixins.json",
+    {
+      "config": "uuidcommand.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
