@@ -6,6 +6,7 @@ import com.mixplus.library.util.StringUtil;
 import com.mixplus.mods.uuidcommand.client.command.ClientCommand;
 import com.mixplus.mods.uuidcommand.client.command.SubCommand;
 import com.mixplus.mods.uuidcommand.client.command.TabComplete;
+
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.ClickEvent;
@@ -15,6 +16,9 @@ import net.minecraft.util.Formatting;
 import org.jetbrains.annotations.NotNull;
 
 
+import java.io.IOException;
+import java.net.UnknownHostException;
+import java.net.http.HttpTimeoutException;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -36,73 +40,42 @@ public class UUIDCommand {
 
         UUID uuid = findOnlinePlayer(args[0]);
         if (uuid != null) {
-            this.send(
-                    source,
-                    uuid,
+            Text message = this.handleMessage(
                     States.Get,
-                    args[0]
+                    null,
+                    args[0],
+                    uuid
+            );
+
+            this.sendMessage(
+                    source,
+                    message
             );
 
         } else {
             executor.submit(() -> {
+
                 try {
                     Response response = Https.request(
                             "https://api.mojang.com/users/profiles/minecraft/" + args[0]
                     );
 
-                    int statusCode = response.statusCode();
-                    switch (statusCode) {
-                        case 404 -> {
-                            this.send(
-                                    source,
-                                    null,
-                                    States.PlayerNotfound,
-                                    args[0]
-                            );
-                            return;
-                        }
+                    handleResponse(response, source, args);
 
-                        case 500, 502, 503, 504 -> {
-                            this.send(
-                                    source,
-                                    null,
-                                    States.APIError,
-                                    args[0]
-                            );
-                            return;
-                        }
 
-                        default -> {}
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+
+                } catch (IOException e) {
+                    switch (e) {
+                        case HttpTimeoutException exception -> this.handleError(source, ErrorType.TIMEOUT);
+
+                        case UnknownHostException exception -> this.handleError(source, ErrorType.UNKNOWN_HOST);
+
+                        default -> this.handleError(source, ErrorType.IO_ERROR);
                     }
-
-                    Map<String, Object> profile = response.body();
-
-                    if (!profile.containsKey("id")) {
-                        this.send(
-                                source,
-                                null,
-                                States.APIError,
-                                args[0]
-                        );
-                        return;
-                    }
-
-                    this.send(
-                            source,
-                            StringUtil.toUUID(profile.get("id").toString()),
-                            States.Get,
-                            args[0]
-                    );
-
-
-                } catch (RuntimeException e) {
-                    this.send(
-                            source,
-                            null,
-                            States.APIError,
-                            args[0]
-                    );
                 }
+
             });
         }
 
@@ -113,11 +86,10 @@ public class UUIDCommand {
             FabricClientCommandSource source,
             String[] args
     ) {
-        this.send(
+        Text message = this.handleMessage(States.Generate, null, null, UUID.randomUUID());
+        this.sendMessage(
                 source,
-                UUID.randomUUID(),
-                States.Generate,
-                null
+                message
         );
     }
 
@@ -149,16 +121,66 @@ public class UUIDCommand {
                 .toList();
     }
 
-    private void send(
-            @NotNull FabricClientCommandSource source,
-            UUID uuid,
-            @NotNull States mode,
-            String username
+    private void handleError(FabricClientCommandSource source, ErrorType errorType) {
+        Text message = this.handleMessage(States.APIError, errorType, null, null);
+        this.sendMessage(source, message);
+    }
+
+    private void handleResponse(
+            Response response,
+            FabricClientCommandSource source,
+            String[] args
+    ) {
+        int statusCode = response.statusCode();
+        switch (statusCode) {
+            case 404 -> {
+                Text message = this.handleMessage(States.PlayerNotfound, null, null, null);
+                this.sendMessage(source, message);
+                return;
+            }
+
+            case 500, 502, 503, 504 -> {
+                Text message = this.handleMessage(States.APIError, null, null, null);
+                this.sendMessage(
+                        source,
+                        message
+                );
+                return;
+            }
+
+            default -> {}
+        }
+
+        Map<String, Object> profile = response.body();
+
+        if (!profile.containsKey("id")) {
+            Text message = this.handleMessage(States.PlayerNotfound, null, null, null);
+            this.sendMessage(source, message);
+            return;
+        }
+
+        Text message = this.handleMessage(
+                States.Get,
+                null,
+                args[0],
+                StringUtil.toUUID(profile.get("id").toString())
+        );
+        this.sendMessage(
+                source,
+                message
+        );
+
+    }
+
+    private Text handleMessage(
+            @NotNull States states,
+            ErrorType errorType,
+            String username,
+            UUID uuid
     ) {
         Text message;
-
-        switch (mode) {
-            case Get -> message = Text.literal("UUID of " + username + "\n")
+        switch (states) {
+            case Get -> message = Text.literal("UUId of " + username + "\n")
                     .append(
                             Text.literal(uuid.toString())
                                     .formatted(Formatting.GREEN)
@@ -191,18 +213,31 @@ public class UUIDCommand {
                                     )
                     );
 
+            case APIError, Error -> {
+                if (Objects.requireNonNull(errorType) == ErrorType.TIMEOUT) {
+                    message = Text.literal(ErrorType.TIMEOUT.getMessage())
+                            .formatted(Formatting.RED);
+                } else {
+                    message = Text.literal(ErrorType.IO_ERROR.getMessage())
+                            .formatted(Formatting.RED);
+                }
+            }
+
             case PlayerNotfound -> message = Text.literal("Player not found.")
                     .formatted(Formatting.RED);
 
-            case APIError -> message = Text.literal("Failed to retrieve player information.")
+            default -> message = Text.literal("An issue may have occurred.")
                     .formatted(Formatting.RED);
-
-            default -> message = Text.literal("");
         }
 
+        return message;
+    }
+
+    private void sendMessage(
+            @NotNull FabricClientCommandSource source,
+            Text message
+    ) {
         source.sendFeedback(message);
-
-
     }
 
     private UUID findOnlinePlayer(String name) {
